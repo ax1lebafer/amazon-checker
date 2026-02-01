@@ -1,0 +1,20 @@
+[Unit]
+Description=Amazon.in Product Availability Monitor
+After=network.target
+
+[Service]
+Type=simple
+# ВАЖНО: Замените на вашего пользователя
+User=YOUR_USERNAME
+# ВАЖНО: Замените на полный путь к директории проекта
+WorkingDirectory=/path/to/check-stuff
+# ВАЖНО: Замените на полный путь к node (найдите с помощью: which node)
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=amazon-monitor
+
+[Install]
+WantedBy=multi-user.target
