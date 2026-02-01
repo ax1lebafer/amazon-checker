@@ -71,6 +71,16 @@ export async function checkProductAvailability(
       const bodyText = $('body').text();
       const isUnavailable = bodyText.includes('Currently unavailable');
 
+      // Проверяем наличие капчи
+      const hasCaptcha = bodyText.includes('Enter the characters you see below') || 
+                         bodyText.includes('Type the characters you see in this image') ||
+                         $('form[action*="captcha"]').length > 0;
+      
+      if (hasCaptcha) {
+        log(LogLevel.ERROR, '⚠️ Обнаружена CAPTCHA на странице!');
+        throw new Error('Amazon показывает CAPTCHA - требуется человеческая проверка');
+      }
+
       // Проверяем наличие кнопки "Add to Cart"
       const hasAddToCartButton = 
         $('#add-to-cart-button').length > 0 ||
@@ -93,10 +103,22 @@ export async function checkProductAvailability(
       
       if (axios.isAxiosError(error)) {
         const axiosError = error as AxiosError;
+        const status = axiosError.response?.status;
         log(LogLevel.ERROR, `Ошибка при запросе к ${url} (попытка ${attempt}/${retries}): ${axiosError.message}`);
         
-        if (axiosError.response?.status === 503) {
-          log(LogLevel.DEBUG, 'Получен 503 Service Unavailable - Amazon может блокировать запросы');
+        // Определяем тип ошибки для более детального логирования
+        if (status === 503) {
+          log(LogLevel.DEBUG, '⚠️ 503 Service Unavailable - Amazon может блокировать запросы');
+          lastError = new Error('Amazon блокирует запросы (503)');
+        } else if (status === 403) {
+          log(LogLevel.DEBUG, '⚠️ 403 Forbidden - Доступ запрещен, возможна блокировка');
+          lastError = new Error('Доступ запрещен (403) - возможна блокировка');
+        } else if (status === 404) {
+          log(LogLevel.DEBUG, '⚠️ 404 Not Found - Товар не найден или URL изменился');
+          lastError = new Error('Товар не найден (404)');
+        } else if (axiosError.code === 'ETIMEDOUT' || axiosError.code === 'ECONNABORTED') {
+          log(LogLevel.DEBUG, '⚠️ Таймаут - Amazon не отвечает');
+          lastError = new Error('Таймаут соединения');
         }
       } else {
         log(LogLevel.ERROR, `Неизвестная ошибка при проверке ${url}: ${(error as Error).message}`);

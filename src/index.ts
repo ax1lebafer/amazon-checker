@@ -1,9 +1,10 @@
 import { loadConfig, PRODUCT_URLS } from './config';
 import { log, setLogLevel } from './logger';
-import { initTelegramBot, sendAvailabilityNotification, sendTestNotification } from './telegramNotifier';
+import { initTelegramBot, sendAvailabilityNotification, sendTestNotification, sendErrorNotification } from './telegramNotifier';
 import { checkMultipleProducts } from './amazonChecker';
 import { loadState, saveState, updateProductState, hasStateChanged } from './stateManager';
 import { StateStorage, LogLevel } from './types';
+import { trackError, resetErrors } from './errorTracker';
 
 let isRunning = true;
 let state: StateStorage = {};
@@ -22,6 +23,24 @@ async function checkProducts(): Promise<void> {
     // Обрабатываем результаты
     for (const result of results) {
       const { url, available, productName, error } = result;
+
+      // Если есть ошибка, отслеживаем её
+      if (error) {
+        const shouldNotify = trackError(url, error);
+        if (shouldNotify) {
+          const shortUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
+          await sendErrorNotification(
+            `❌ Проблема с проверкой товара:\n\n` +
+            `Товар: ${productName}\n` +
+            `URL: ${shortUrl}\n` +
+            `Ошибка: ${error}\n\n` +
+            `Проверьте доступность Amazon.in и наличие блокировок/капчи.`
+          );
+        }
+      } else {
+        // Успешная проверка - сбрасываем счетчик ошибок
+        resetErrors(url);
+      }
 
       // Проверяем, изменилось ли состояние
       const stateChanged = hasStateChanged(state, url, available);
