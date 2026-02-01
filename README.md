@@ -102,6 +102,7 @@ cp .env.example .env
 nano .env
 ```
 
+
 Вставьте ваши данные:
 ```
 TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
