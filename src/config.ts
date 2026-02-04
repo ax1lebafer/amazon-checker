@@ -50,10 +50,13 @@ export function loadConfig(): Config {
  * URL товаров для мониторинга
  */
 export const PRODUCT_URLS = [
-  'https://amzn.in/d/bHg6AfW',
-  'https://amzn.in/d/3erpS1I',
-  'https://amzn.in/d/9BIxHL1',
-  'https://amzn.in/d/2LC2nQE',
-  'https://amzn.in/d/4MbeBzP',
-  'https://www.amazon.in/dp/B0C1GYD3KN',
+  // PlayStation Store Gift Cards - используем полные URL без параметров
+  'https://www.amazon.in/dp/B07K6RYVHR', // 1000₹ (было amzn.in/d/bHg6AfW)
+  'https://www.amazon.in/dp/B093QF35KZ', // 2000₹ (было amzn.in/d/3erpS1I)
+  'https://www.amazon.in/dp/B07K6PVR8B', // 3000₹ (было amzn.in/d/9BIxHL1)
+  'https://www.amazon.in/dp/B07K6RYVJ5', // 4000₹ (было amzn.in/d/2LC2nQE)
+  'https://www.amazon.in/dp/B0B3DDW7TB', // 5000₹ (было amzn.in/d/4MbeBzP)
+  'https://www.amazon.in/dp/B0C1GYD3KN', // Alternative 5000₹
+  'https://www.amazon.in/dp/B0C1H473H8', // 3000₹ (было amzn.in/d/0hsyu8x2)
+  'https://www.amazon.in/dp/B0C1H3K2V4', // 5000₹ (было amzn.in/d/0j26D3Xe) - РАБОТАЕТ!
 ];

@@ -38,22 +38,38 @@ export async function checkProductAvailability(
       const response = await axios.get(url, {
         headers: {
           'User-Agent': getRandomUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8',
           'Accept-Encoding': 'gzip, deflate, br',
           'Connection': 'keep-alive',
           'Upgrade-Insecure-Requests': '1',
+          'Referer': 'https://www.amazon.in/',
+          'Cache-Control': 'max-age=0',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'same-origin',
+          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
         },
         timeout: 30000, // 30 секунд
         maxRedirects: 5,
       });
 
+      // Логируем финальный URL после редиректов
+      const finalUrl = response.request?.res?.responseUrl || url;
+      if (finalUrl !== url) {
+        log(LogLevel.DEBUG, `Редирект: ${url} -> ${finalUrl}`);
+      }
+
       const $ = cheerio.load(response.data);
 
-      // Извлекаем название товара
+      // Извлекаем название товара - пробуем различные селекторы
       let productName = $('#productTitle').text().trim();
       
-      // Если не нашли по первому селектору, пробуем альтернативные
+      if (!productName) {
+        productName = $('h1#title').text().trim();
+      }
       if (!productName) {
         productName = $('h1.a-size-large').first().text().trim();
       }
@@ -61,11 +77,27 @@ export async function checkProductAvailability(
         productName = $('span#productTitle').text().trim();
       }
       if (!productName) {
-        productName = 'Название товара не найдено';
+        productName = $('h1 span').first().text().trim();
       }
-
+      if (!productName) {
+        productName = $('.product-title').text().trim();
+      }
+      
       // Очищаем название от лишних пробелов и переносов строк
       productName = productName.replace(/\s+/g, ' ').trim();
+      
+      if (!productName) {
+        // Пробуем найти хотя бы какой-то заголовок на странице
+        const anyHeading = $('h1').first().text().trim().replace(/\s+/g, ' ');
+        if (anyHeading) {
+          productName = anyHeading;
+          log(LogLevel.DEBUG, `Найден альтернативный заголовок: ${productName}`);
+        } else {
+          log(LogLevel.DEBUG, `⚠️ Не удалось найти название товара для ${url}`);
+          log(LogLevel.DEBUG, `Доступные h1: ${$('h1').length}, title: ${$('title').text().substring(0, 100)}`);
+          productName = 'Название товара не найдено';
+        }
+      }
 
       // Проверяем наличие текста "Currently unavailable"
       const bodyText = $('body').text();
@@ -81,15 +113,43 @@ export async function checkProductAvailability(
         throw new Error('Amazon показывает CAPTCHA - требуется человеческая проверка');
       }
 
-      // Проверяем наличие кнопки "Add to Cart"
-      const hasAddToCartButton = 
-        $('#add-to-cart-button').length > 0 ||
-        $('input[name="submit.add-to-cart"]').length > 0 ||
-        $('button[name="submit.add-to-cart"]').length > 0 ||
-        $('#addToCart').length > 0;
+      // Проверяем наличие кнопки "Add to Cart" (разные варианты)
+      const addToCartSelectors = [
+        '#add-to-cart-button',
+        'input[name="submit.add-to-cart"]',
+        'button[name="submit.add-to-cart"]',
+        '#addToCart',
+        'input#add-to-cart-button',
+        '.a-button-input[name="submit.add-to-cart"]',
+        '#buy-now-button',
+        'input[name="submit.buy-now"]',
+        '[data-action="a-popover"]', // для некоторых gift cards
+      ];
+      
+      let hasAddToCartButton = false;
+      let foundSelector = '';
+      for (const selector of addToCartSelectors) {
+        if ($(selector).length > 0) {
+          hasAddToCartButton = true;
+          foundSelector = selector;
+          break;
+        }
+      }
 
-      // Товар доступен, если НЕТ текста "Currently unavailable" И ЕСТЬ кнопка добавления в корзину
-      const available = !isUnavailable && hasAddToCartButton;
+      // Дополнительные проверки доступности
+      const hasInStock = bodyText.includes('In stock') || bodyText.includes('In Stock');
+      const hasAvailability = $('.a-size-medium.a-color-success').length > 0;
+      
+      // НОВАЯ ЛОГИКА: Если есть кнопка "Add to Cart" И текст "In Stock", то ИГНОРИРУЕМ "Currently unavailable"
+      // (Amazon показывает противоречивую информацию для ботов)
+      const available = (hasAddToCartButton && hasInStock) || (!isUnavailable && (hasAddToCartButton || hasInStock || hasAvailability));
+
+      // Детальное логирование для отладки
+      if (foundSelector) {
+        log(LogLevel.DEBUG, `  └─ Unavailable: ${isUnavailable}, Кнопка найдена: ${foundSelector}, InStock: ${hasInStock}, Итог: ${available ? '✅ В НАЛИЧИИ' : '❌ НЕТ'}`);
+      } else {
+        log(LogLevel.DEBUG, `  └─ Unavailable: ${isUnavailable}, Кнопка: нет, InStock: ${hasInStock}, Availability элемент: ${hasAvailability}, Итог: ${available ? '✅ В НАЛИЧИИ' : '❌ НЕТ'}`);
+      }
 
       log(LogLevel.INFO, `Товар "${productName}": ${available ? '✅ В наличии' : '❌ Нет в наличии'}`);
 
@@ -143,16 +203,26 @@ export async function checkProductAvailability(
 }
 
 /**
- * Проверяет несколько товаров параллельно
+ * Проверяет несколько товаров последовательно с задержками
  * @param urls - массив URL товаров
  * @returns массив результатов проверки
  */
 export async function checkMultipleProducts(urls: string[]): Promise<CheckResult[]> {
   log(LogLevel.INFO, `Начало проверки ${urls.length} товаров...`);
   
-  const results = await Promise.all(
-    urls.map(url => checkProductAvailability(url))
-  );
+  const results: CheckResult[] = [];
+  
+  for (let i = 0; i < urls.length; i++) {
+    const result = await checkProductAvailability(urls[i]);
+    results.push(result);
+    
+    // Добавляем задержку между запросами (кроме последнего)
+    if (i < urls.length - 1) {
+      const delay = 2000 + Math.random() * 2000; // 2-4 секунды
+      log(LogLevel.DEBUG, `Ожидание ${Math.round(delay)}мс перед следующим товаром...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
 
   const available = results.filter(r => r.available).length;
   log(LogLevel.INFO, `Проверка завершена: ${available} из ${urls.length} товаров в наличии`);
