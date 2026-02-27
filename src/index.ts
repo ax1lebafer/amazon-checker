@@ -1,6 +1,6 @@
 import { loadConfig, PRODUCT_URLS } from './config';
 import { log, setLogLevel } from './logger';
-import { initTelegramBot, sendAvailabilityNotification, sendTestNotification, sendErrorNotification } from './telegramNotifier';
+import { initTelegramBot, setupBotCommands, sendAvailabilityNotification, sendTestNotification, sendErrorNotification } from './telegramNotifier';
 import { checkMultipleProducts } from './amazonChecker';
 import { loadState, saveState, updateProductState, hasStateChanged } from './stateManager';
 import { StateStorage, LogLevel } from './types';
@@ -8,11 +8,14 @@ import { trackError, resetErrors } from './errorTracker';
 
 let isRunning = true;
 let state: StateStorage = {};
+let lastCheckTime: Date | null = null;
+let lastCheckError: string | null = null;
 
 /**
  * Основная функция проверки товаров
  */
 async function checkProducts(): Promise<void> {
+  lastCheckError = null;
   try {
     log(LogLevel.INFO, '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     log(LogLevel.INFO, 'Начало цикла проверки товаров');
@@ -57,9 +60,11 @@ async function checkProducts(): Promise<void> {
 
     // Сохраняем состояние
     saveState(state);
+    lastCheckTime = new Date();
 
     log(LogLevel.INFO, 'Цикл проверки завершён');
   } catch (error) {
+    lastCheckError = (error as Error).message;
     log(LogLevel.ERROR, `Ошибка в цикле проверки: ${(error as Error).message}`);
   }
 }
@@ -87,6 +92,25 @@ async function main(): Promise<void> {
       log(LogLevel.ERROR, 'Не удалось отправить тестовое уведомление. Проверьте TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID');
       process.exit(1);
     }
+
+    // Регистрируем команды бота: /logs, /status, /help
+    setupBotCommands(() => {
+      const lines: string[] = [
+        '📊 Статус мониторинга Amazon.in',
+        '',
+        lastCheckTime
+          ? `Последняя проверка: ${lastCheckTime.toLocaleString('ru-RU')}`
+          : 'Проверка ещё не выполнялась.',
+        lastCheckError ? `Ошибка: ${lastCheckError}` : '',
+        '',
+        'Товары:',
+      ];
+      for (const [url, s] of Object.entries(state)) {
+        const asin = url.replace(/.*\/dp\/([A-Z0-9]+).*/, '$1') || url.slice(0, 20);
+        lines.push(`  ${s.available ? '🟢' : '🔴'} ${asin} — ${s.productName || '—'}`);
+      }
+      return lines.filter(Boolean).join('\n');
+    });
 
     // Загружаем состояние
     state = loadState();
