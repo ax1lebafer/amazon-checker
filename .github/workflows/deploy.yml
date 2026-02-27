@@ -1,0 +1,36 @@
+# Автодеплой на сервер при пуше в main
+# Инструкция по настройке: см. DEPLOY_SETUP.md
+
+name: Deploy to server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH and deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -e
+          # Путь к проекту на сервере (если секрет не задан — по умолчанию ~/amazon-checker)
+          DEPLOY_PATH="${DEPLOY_PATH:-~/amazon-checker}"
+
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "cd $DEPLOY_PATH && git pull origin main && npm install --production && npm run build && sudo systemctl restart amazon-monitor"
+
+          echo "Deploy finished successfully."

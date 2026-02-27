@@ -2,6 +2,9 @@ import { LogLevel } from './types';
 
 let currentLogLevel: LogLevel = LogLevel.INFO;
 
+const LOG_BUFFER_MAX = 150;
+const logBuffer: string[] = [];
+
 /**
  * Устанавливает уровень логирования
  */
@@ -18,6 +21,17 @@ function getTimestamp(): string {
 }
 
 /**
+ * Возвращает последние записи лога (для команды /logs в боте)
+ */
+export function getRecentLogs(limit: number = 80): string {
+  const lines = logBuffer.slice(-limit);
+  const text = lines.join('\n');
+  const maxLen = 4000;
+  if (text.length <= maxLen) return text;
+  return '...\n' + text.slice(-maxLen);
+}
+
+/**
  * Логирует сообщение
  */
 export function log(level: LogLevel, message: string): void {
@@ -29,6 +43,9 @@ export function log(level: LogLevel, message: string): void {
 
   if (levels[level] >= levels[currentLogLevel]) {
     const prefix = `[${getTimestamp()}] [${level.toUpperCase()}]`;
-    console.log(`${prefix} ${message}`);
+    const line = `${prefix} ${message}`;
+    console.log(line);
+    logBuffer.push(line);
+    if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
   }
 }

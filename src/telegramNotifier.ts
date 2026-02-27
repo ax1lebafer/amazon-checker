@@ -1,24 +1,65 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { log } from './logger';
+import { log, getRecentLogs } from './logger';
 import { LogLevel } from './types';
+
+const TELEGRAM_MSG_MAX = 4096;
 
 let bot: TelegramBot | null = null;
 let chatId: string = '';
 
+let statusProvider: (() => string) | null = null;
+
 /**
- * Инициализирует Telegram бота
+ * Инициализирует Telegram бота (с polling для приёма команд)
  * @param token - токен бота
- * @param targetChatId - ID чата для отправки сообщений
+ * @param targetChatId - ID чата для отправки сообщений и приёма команд
  */
 export function initTelegramBot(token: string, targetChatId: string): void {
   try {
-    bot = new TelegramBot(token, { polling: false });
-    chatId = targetChatId;
+    bot = new TelegramBot(token, { polling: true });
+    chatId = String(targetChatId);
     log(LogLevel.INFO, '✅ Telegram бот инициализирован');
   } catch (error) {
     log(LogLevel.ERROR, `Ошибка инициализации Telegram бота: ${(error as Error).message}`);
     throw error;
   }
+}
+
+/**
+ * Регистрирует команды бота: /logs, /status, /help
+ * @param getStatusText - функция, возвращающая текст для /status
+ */
+export function setupBotCommands(getStatusText: () => string): void {
+  statusProvider = getStatusText;
+  if (!bot) return;
+
+  const isAllowed = (msg: TelegramBot.Message): boolean =>
+    String(msg.chat?.id) === chatId;
+
+  bot.onText(/\/logs(?:\s+(\d+))?/, (msg, match) => {
+    if (!isAllowed(msg)) return;
+    const limit = match?.[1] ? Math.min(100, parseInt(match[1], 10)) : 80;
+    const text = getRecentLogs(limit);
+    const toSend = text.length <= TELEGRAM_MSG_MAX ? text : text.slice(-TELEGRAM_MSG_MAX - 20).replace(/^[^\n]*\n?/, '… (обрезано)\n');
+    bot?.sendMessage(msg.chat.id, toSend || 'Логов пока нет.', { disable_web_page_preview: true }).catch(() => {});
+  });
+
+  bot.onText(/\/status/, (msg) => {
+    if (!isAllowed(msg)) return;
+    const text = statusProvider?.() ?? 'Статус недоступен.';
+    const toSend = text.length <= TELEGRAM_MSG_MAX ? text : text.slice(0, TELEGRAM_MSG_MAX) + '…';
+    bot?.sendMessage(msg.chat.id, toSend, { disable_web_page_preview: true }).catch(() => {});
+  });
+
+  bot.onText(/\/help/, (msg) => {
+    if (!isAllowed(msg)) return;
+    const helpText =
+      '📋 Команды бота:\n\n' +
+      '/logs [N] — последние логи (по умолчанию 80 строк, N до 100)\n' +
+      '/status — статус мониторинга и последняя проверка\n' +
+      '/help — эта справка';
+    bot?.sendMessage(msg.chat.id, helpText).catch(() => {});
+  });
 }
 
 /**
