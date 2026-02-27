@@ -31,6 +31,6 @@ jobs:
 
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "cd $DEPLOY_PATH && git pull origin main && npm install --production && npm run build && sudo systemctl restart amazon-monitor"
+            "cd $DEPLOY_PATH && git pull origin main && npm install && npm run build && sudo systemctl restart amazon-monitor"
 
           echo "Deploy finished successfully."

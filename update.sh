@@ -17,7 +17,7 @@ echo "📦 Получение последних изменений из Git..."
 git pull origin main
 
 echo "📥 Установка/обновление зависимостей..."
-npm install --production
+npm install
 
 echo "🔨 Компиляция TypeScript..."
 npm run build
