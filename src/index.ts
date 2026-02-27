@@ -7,6 +7,7 @@ import { StateStorage, LogLevel } from './types';
 import { trackError, resetErrors } from './errorTracker';
 
 let isRunning = true;
+let isChecking = false;
 let state: StateStorage = {};
 let lastCheckTime: Date | null = null;
 let lastCheckError: string | null = null;
@@ -123,9 +124,14 @@ async function main(): Promise<void> {
     log(LogLevel.INFO, `Следующая проверка через ${config.checkIntervalMinutes} минут`);
 
     const interval = setInterval(async () => {
-      if (isRunning) {
+      if (!isRunning) return;
+      if (isChecking) return; // уже идёт проверка — пропускаем тик
+      isChecking = true;
+      try {
         await checkProducts();
         log(LogLevel.INFO, `Следующая проверка через ${config.checkIntervalMinutes} минут`);
+      } finally {
+        isChecking = false;
       }
     }, intervalMs);
 
