@@ -6,11 +6,15 @@ import { loadState, saveState, updateProductState, hasStateChanged } from './sta
 import { StateStorage, LogLevel } from './types';
 import { trackError, resetErrors } from './errorTracker';
 
+const CAPTCHA_NOTIFY_COOLDOWN_MS = 15 * 60 * 1000; // 15 минут
+const TELEGRAM_MSG_MAX = 4096;
+
 let isRunning = true;
 let isChecking = false;
 let state: StateStorage = {};
 let lastCheckTime: Date | null = null;
 let lastCheckError: string | null = null;
+const lastCaptchaNotifyByUrl: Record<string, number> = {};
 
 /**
  * Основная функция проверки товаров
@@ -28,18 +32,32 @@ async function checkProducts(): Promise<void> {
     for (const result of results) {
       const { url, available, productName, error } = result;
 
-      // Если есть ошибка, отслеживаем её
+      // Если есть ошибка — уведомляем (капча сразу с cooldown, остальные через trackError)
       if (error) {
-        const shouldNotify = trackError(url, error);
-        if (shouldNotify) {
-          const shortUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
-          await sendErrorNotification(
-            `❌ Проблема с проверкой товара:\n\n` +
-            `Товар: ${productName}\n` +
-            `URL: ${shortUrl}\n` +
-            `Ошибка: ${error}\n\n` +
-            `Проверьте доступность Amazon.in и наличие блокировок/капчи.`
-          );
+        const shortUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
+
+        if (error.includes('CAPTCHA')) {
+          const now = Date.now();
+          if (!lastCaptchaNotifyByUrl[url] || now - lastCaptchaNotifyByUrl[url] >= CAPTCHA_NOTIFY_COOLDOWN_MS) {
+            lastCaptchaNotifyByUrl[url] = now;
+            await sendErrorNotification(
+              `Капча на Amazon\n\n` +
+              `Товар: ${productName}\n` +
+              `URL: ${shortUrl}\n\n` +
+              `Amazon показывает капчу. Откройте ссылку и пройдите проверку вручную.`
+            );
+          }
+        } else {
+          const shouldNotify = trackError(url, error);
+          if (shouldNotify) {
+            await sendErrorNotification(
+              `Тип ошибки: ${error}\n\n` +
+              `Товар: ${productName}\n` +
+              `URL: ${shortUrl}\n` +
+              `Ошибка: ${error}\n\n` +
+              `Проверьте доступность Amazon.in и наличие блокировок/капчи.`
+            );
+          }
         }
       } else {
         // Успешная проверка - сбрасываем счетчик ошибок
@@ -65,8 +83,13 @@ async function checkProducts(): Promise<void> {
 
     log(LogLevel.INFO, 'Цикл проверки завершён');
   } catch (error) {
-    lastCheckError = (error as Error).message;
-    log(LogLevel.ERROR, `Ошибка в цикле проверки: ${(error as Error).message}`);
+    const errMsg = (error as Error).message;
+    lastCheckError = errMsg;
+    log(LogLevel.ERROR, `Ошибка в цикле проверки: ${errMsg}`);
+
+    const cycleErrorText = `Ошибка в цикле проверки\n\nОписание: ${errMsg}`;
+    const toSend = cycleErrorText.length <= TELEGRAM_MSG_MAX ? cycleErrorText : cycleErrorText.slice(0, TELEGRAM_MSG_MAX - 3) + '…';
+    await sendErrorNotification(toSend);
   }
 }
 
